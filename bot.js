@@ -2,7 +2,7 @@ const mineflayer = require('mineflayer');
 
 const HOST = '606smp.aternos.me';
 const USERNAME = 'Bot';
-const PORT = 25565;        // ← Change this when Aternos gives you a new port
+let PORT = 47593;   // Default, change only if needed
 
 console.log('Aternos Cycler Bot Starting...');
 
@@ -11,7 +11,7 @@ function createBot() {
 
   const bot = mineflayer.createBot({
     host: HOST,
-    port: PORT,           // ← Using port as requested
+    port: PORT,
     username: USERNAME,
     version: false,
     checkTimeoutInterval: 60000,
@@ -19,8 +19,17 @@ function createBot() {
 
   bot.on('spawn', () => {
     console.log(`[${new Date().toISOString()}] ✅ Bot spawned! Staying for 30 seconds...`);
-    
+
+    // Simple anti-AFK movement
+    const moveInterval = setInterval(() => {
+      if (bot.entity) {
+        bot.setControlState('jump', true);
+        setTimeout(() => bot.setControlState('jump', false), 500);
+      }
+    }, 8000);
+
     setTimeout(() => {
+      clearInterval(moveInterval);
       if (!bot.ended) {
         console.log(`[${new Date().toISOString()}] Leaving server...`);
         bot.quit();
@@ -42,8 +51,8 @@ function createBot() {
   });
 }
 
-// Start the cycle
+// Start
 createBot();
 
-// Keep process alive
+// Keep alive
 process.on('SIGINT', () => process.exit(0));
