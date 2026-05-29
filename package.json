@@ -1,5 +1,5 @@
 {
-  "name": "aternos-cycler-bot",
+  "name": "aternos-bot",
   "version": "1.0.0",
   "dependencies": {
     "mineflayer": "^4.20.0"
