@@ -1,17 +1,15 @@
 import mineflayer from 'mineflayer';
 
 const HOST = '606smp.aternos.me';
-const PORT = 25565;
-const USERNAME = 'KeepAliveBot';   // You can change this
+const USERNAME = 'KeepAliveBot';
 
 let bot = null;
 
 function createBot() {
   bot = mineflayer.createBot({
     host: HOST,
-    port: PORT,
     username: USERNAME,
-    version: '1.21',           // Change if your server is different
+    version: '1.21',
     checkTimeoutInterval: 30000
   });
 
@@ -32,25 +30,20 @@ function createBot() {
   });
 }
 
-// Main cycle: Join 30s → Leave 30s
 async function startCycle() {
   while (true) {
     console.log(`[${new Date().toLocaleTimeString()}] Starting new cycle...`);
 
-    // Join
     createBot();
 
-    // Stay for 30 seconds
     await new Promise(resolve => setTimeout(resolve, 30000));
 
-    // Quit if bot still exists
     if (bot) {
       bot.quit();
       bot = null;
       console.log(`[${new Date().toLocaleTimeString()}] Bot left the server`);
     }
 
-    // Wait 30 seconds before rejoining
     await new Promise(resolve => setTimeout(resolve, 30000));
   }
 }
