@@ -2,14 +2,16 @@ const mineflayer = require('mineflayer');
 
 const HOST = '606smp.aternos.me';
 const USERNAME = 'Bot';
+const PORT = 25565;        // ← Change this when Aternos gives you a new port
 
 console.log('Aternos Cycler Bot Starting...');
 
 function createBot() {
-  console.log(`[${new Date().toISOString()}] Connecting as ${USERNAME} to ${HOST}...`);
+  console.log(`[${new Date().toISOString()}] Connecting as ${USERNAME} to \( {HOST}: \){PORT}...`);
 
   const bot = mineflayer.createBot({
     host: HOST,
+    port: PORT,           // ← Using port as requested
     username: USERNAME,
     version: false,
     checkTimeoutInterval: 60000,
