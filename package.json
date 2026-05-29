@@ -1,9 +1,8 @@
 {
-  "name": "aternos-30s-cycle-bot",
+  "name": "aternos-cycler-bot",
   "version": "1.0.0",
-  "type": "module",
   "dependencies": {
-    "mineflayer": "^4.0.0"
+    "mineflayer": "^4.20.0"
   },
   "scripts": {
     "start": "node bot.js"
