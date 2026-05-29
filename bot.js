@@ -2,34 +2,30 @@ const mineflayer = require('mineflayer');
 
 const HOST = '606smp.aternos.me';
 const USERNAME = 'Bot';
-let PORT = 47593;   // Default, change only if needed
 
 console.log('Aternos Cycler Bot Starting...');
 
 function createBot() {
-  console.log(`[${new Date().toISOString()}] Connecting as ${USERNAME} to \( {HOST}: \){PORT}...`);
+  console.log(`[${new Date().toISOString()}] Connecting as ${USERNAME} to ${HOST}...`);
 
   const bot = mineflayer.createBot({
     host: HOST,
-    port: PORT,
+    // NO PORT - Aternos uses SRV record
     username: USERNAME,
     version: false,
-    checkTimeoutInterval: 60000,
+    checkTimeoutInterval: 120000,
   });
 
   bot.on('spawn', () => {
-    console.log(`[${new Date().toISOString()}] ✅ Bot spawned! Staying for 30 seconds...`);
+    console.log(`[${new Date().toISOString()}] ✅ Bot joined! Staying 30s...`);
 
-    // Simple anti-AFK movement
-    const moveInterval = setInterval(() => {
-      if (bot.entity) {
-        bot.setControlState('jump', true);
-        setTimeout(() => bot.setControlState('jump', false), 500);
-      }
-    }, 8000);
+    const afkInterval = setInterval(() => {
+      if (bot.entity) bot.setControlState('jump', true);
+      setTimeout(() => { if (bot.entity) bot.setControlState('jump', false); }, 300);
+    }, 7000);
 
     setTimeout(() => {
-      clearInterval(moveInterval);
+      clearInterval(afkInterval);
       if (!bot.ended) {
         console.log(`[${new Date().toISOString()}] Leaving server...`);
         bot.quit();
@@ -51,8 +47,6 @@ function createBot() {
   });
 }
 
-// Start
 createBot();
 
-// Keep alive
 process.on('SIGINT', () => process.exit(0));
