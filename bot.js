@@ -1,7 +1,14 @@
 import mineflayer from 'mineflayer';
+import http from 'http';
 
 const HOST = '606smp.aternos.me';
 const USERNAME = 'KeepAliveBot';
+
+// Keep Render alive
+http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end('Bot is running');
+}).listen(process.env.PORT || 3000);
 
 let bot = null;
 
