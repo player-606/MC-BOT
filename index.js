@@ -9,14 +9,14 @@ const HTTP_PORT = process.env.PORT || 3000;
 
 console.log('🚀 Aternos Keeper Bot starting...');
 
-// ── HTTP server (required for Render to keep process alive) ───────────────
+// ── HTTP server (keeps Render alive) ─────────────────────────────────────
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end(`Bot alive. Connected: ${bot ? !bot.ended : false}\n`);
 });
 server.listen(HTTP_PORT, () => console.log(`[HTTP] Listening on port ${HTTP_PORT}`));
 
-// ── Self-ping every 4 min so Render free tier doesn't sleep ───────────────
+// ── Self-ping every 4 min (prevents Render free tier sleep) ──────────────
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || '';
 if (RENDER_URL) {
   setInterval(() => {
@@ -48,21 +48,30 @@ function createBot() {
     host: HOST,
     port: PORT_MC,
     username: USERNAME,
-    version: '1.21.1',
+    version: '1.21.11',
     checkTimeoutInterval: 600000,
   });
+
+  // Guard so only ONE of kicked/end/error triggers a reconnect
+  let disconnected = false;
+  function onDisconnect(label, reason, delay) {
+    if (disconnected) return;
+    disconnected = true;
+    console.log(`[${new Date().toISOString()}] [${label}] ${reason}`);
+    scheduleReconnect(delay, label);
+  }
 
   bot.on('chat', (username, message) => {
     if (username === bot.username) return;
     const msg = message.toLowerCase();
     if (msg.includes('login') || msg.includes('password') || msg.includes('log in') || msg.includes('logged out')) {
-      console.log(`[${new Date().toISOString()}] 🔑 Login prompt detected, logging in...`);
+      console.log(`[${new Date().toISOString()}] 🔑 Login prompt, logging in...`);
       setTimeout(() => bot && !bot.ended && bot.chat(`/login ${PASSWORD}`), 3000);
     }
   });
 
   bot.on('spawn', () => {
-    console.log(`[${new Date().toISOString()}] ✅ Spawned! Sending login...`);
+    console.log(`[${new Date().toISOString()}] ✅ Spawned!`);
     setTimeout(() => bot && !bot.ended && bot.chat(`/login ${PASSWORD}`), 4000);
 
     if (antiAfkInterval) clearInterval(antiAfkInterval);
@@ -88,28 +97,20 @@ function createBot() {
 
   bot.on('kicked', (reason) => {
     const r = (reason || '').toLowerCase();
-    console.log(`[${new Date().toISOString()}] 👢 Kicked: ${reason}`);
     const delay =
-      r.includes('throttl')       ? 90000  // throttled = wait 90s
-      : r.includes('already')     ? 40000  // already playing = wait 40s
-      : r.includes('maintenance') ? 60000
+      r.includes('throttl')    ? 90000
+      : r.includes('already')  ? 40000
+      : r.includes('outdated') ? 5000
       : 25000;
-    scheduleReconnect(delay, 'kicked');
+    onDisconnect('kicked', reason, delay);
   });
 
   bot.on('end', (reason) => {
-    const r = (reason || '').toLowerCase();
-    console.log(`[${new Date().toISOString()}] 🔴 Ended: ${reason}`);
-    const delay =
-      r.includes('throttl')   ? 90000
-      : r.includes('already') ? 40000
-      : 15000;
-    scheduleReconnect(delay, 'end');
+    onDisconnect('end', reason, 20000);
   });
 
   bot.on('error', (err) => {
-    console.error(`[${new Date().toISOString()}] ❌ Error: ${err.message}`);
-    scheduleReconnect(15000, 'error');
+    onDisconnect('error', err.message, 20000);
   });
 }
 
@@ -118,7 +119,7 @@ function cleanup() {
   if (antiAfkInterval) { clearInterval(antiAfkInterval); antiAfkInterval = null; }
 }
 
-// Wait 60s on first start to clear any Aternos throttle from previous session
+// 60s delay on startup to clear Aternos throttle from previous session
 console.log(`[${new Date().toISOString()}] ⏳ Waiting 60s before first connect...`);
 setTimeout(createBot, 60000);
 
