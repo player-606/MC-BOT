@@ -13,55 +13,74 @@ function createBot() {
     host: HOST,
     username: USERNAME,
     version: false,
-    checkTimeoutInterval: 300000,
+    checkTimeoutInterval: 300000, // 5 minutes
   });
 
-  // Auto login & captcha handler
+  // Auto Login
   bot.on('chat', (username, message) => {
     if (username === bot.username) return;
 
     const msg = message.toLowerCase();
 
-    // Auto login
-    if (msg.includes('/login') || msg.includes('please login') || msg.includes('log in')) {
-      console.log(`[${new Date().toISOString()}] Sending login...`);
-      setTimeout(() => bot.chat(`/login ${PASSWORD}`), 800);
+    if (msg.includes('login') || msg.includes('/l') || msg.includes('password') || msg.includes('log in')) {
+      console.log(`[${new Date().toISOString()}] 🔑 Sending login...`);
+      setTimeout(() => bot.chat(`/login ${PASSWORD}`), 1200);
     }
 
-    // Auto captcha
-    if (msg.includes('/captcha') || msg.includes('captcha code') || /[A-Za-z0-9]{4,8}/.test(message)) {
+    // Light captcha support
+    if (msg.includes('captcha')) {
       const codeMatch = message.match(/([A-Za-z0-9]{4,8})/);
       if (codeMatch) {
-        const code = codeMatch[1];
-        console.log(`[${new Date().toISOString()}] Captcha detected: ${code}`);
-        setTimeout(() => bot.chat(`/captcha ${code}`), 600);
+        console.log(`[${new Date().toISOString()}] 🔢 Captcha: ${codeMatch[1]}`);
+        setTimeout(() => bot.chat(`/captcha ${codeMatch[1]}`), 800);
       }
     }
   });
 
   bot.on('spawn', () => {
-    console.log(`[${new Date().toISOString()}] ✅ Bot spawned and logged in! Staying forever...`);
+    console.log(`[${new Date().toISOString()}] ✅ Bot spawned! Staying forever with anti-kick...`);
 
-    // Very strong anti-AFK (keeps server alive)
-    const afkInterval = setInterval(() => {
-      if (bot.entity) {
-        bot.setControlState('jump', true);
-        setTimeout(() => bot.setControlState('jump', false), 350);
+    // === STRONG ANTI-AFK / ANTI-KICK ===
+    let afkInterval = setInterval(() => {
+      if (!bot.entity) return;
 
-        // Random look around
-        bot.look(Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.6);
+      // Jump
+      bot.setControlState('jump', true);
+      setTimeout(() => bot.setControlState('jump', false), 350);
+
+      // Random look around
+      bot.look(Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.8);
+
+      // Occasional small movement
+      if (Math.random() > 0.7) {
+        bot.setControlState('forward', true);
+        setTimeout(() => bot.setControlState('forward', false), 600);
       }
-    }, 5500);
 
-    // Optional: send a message every few minutes to keep activity
+      // Sprint sometimes
+      if (Math.random() > 0.85) {
+        bot.setControlState('sprint', true);
+        setTimeout(() => bot.setControlState('sprint', false), 800);
+      }
+    }, 5200);
+
+    // Chat activity every 4-5 minutes
     setInterval(() => {
-      if (bot.entity) bot.chat('👀');
-    }, 180000); // every 3 minutes
+      if (bot.entity) bot.chat('👍');
+    }, 270000);
+  });
+
+  // Auto Respawn if died
+  bot.on('death', () => {
+    console.log(`[${new Date().toISOString()}] 💀 Bot died, respawning...`);
+    setTimeout(() => {
+      if (bot && !bot.ended) bot.respawn();
+    }, 1500);
   });
 
   bot.on('end', (reason) => {
-    console.log(`[${new Date().toISOString()}] Disconnected: ${reason}. Reconnecting in 8s...`);
-    setTimeout(createBot, 8000);
+    console.log(`[\( {new Date().toISOString()}] Disconnected ( \){reason}). Reconnecting in 6s...`);
+    setTimeout(createBot, 6000);
   });
 
   bot.on('error', (err) => {
@@ -70,6 +89,7 @@ function createBot() {
 
   bot.on('kicked', (reason) => {
     console.log(`[${new Date().toISOString()}] Kicked:`, reason);
+    setTimeout(createBot, 8000);
   });
 }
 
