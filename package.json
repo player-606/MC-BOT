@@ -5,6 +5,6 @@
     "mineflayer": "^4.20.0"
   },
   "scripts": {
-    "start": "node bot.js"
+    "start": "node index.js"
   }
 }
