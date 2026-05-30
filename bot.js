@@ -6,93 +6,98 @@ const PASSWORD = '@.Bot_2012.@';
 
 console.log('Aternos Keeper Bot Starting...');
 
+let bot = null;
+let isRunning = false;
+
 function createBot() {
+  if (isRunning) return;
+  isRunning = true;
+
   console.log(`[${new Date().toISOString()}] Connecting as ${USERNAME}...`);
 
-  const bot = mineflayer.createBot({
+  bot = mineflayer.createBot({
     host: HOST,
     username: USERNAME,
     version: false,
-    checkTimeoutInterval: 300000, // 5 minutes
+    checkTimeoutInterval: 300000,
   });
 
-  // Auto Login
+  // === IMPROVED AUTO LOGIN ===
   bot.on('chat', (username, message) => {
     if (username === bot.username) return;
 
-    const msg = message.toLowerCase();
+    const msg = message.toLowerCase().trim();
 
-    if (msg.includes('login') || msg.includes('/l') || msg.includes('password') || msg.includes('log in')) {
-      console.log(`[${new Date().toISOString()}] 🔑 Sending login...`);
-      setTimeout(() => bot.chat(`/login ${PASSWORD}`), 1200);
+    if (msg.includes('login') || msg.includes('/l') || msg.includes('password') || 
+        msg.includes('log in') || msg.includes('logged out') || msg.includes('authenticate')) {
+      
+      console.log(`[${new Date().toISOString()}] 🔑 Login prompt detected → Sending /login`);
+      setTimeout(() => {
+        bot.chat(`/login ${PASSWORD}`);
+      }, 1800);
     }
 
-    // Light captcha support
+    // Captcha fallback
     if (msg.includes('captcha')) {
       const codeMatch = message.match(/([A-Za-z0-9]{4,8})/);
       if (codeMatch) {
         console.log(`[${new Date().toISOString()}] 🔢 Captcha: ${codeMatch[1]}`);
-        setTimeout(() => bot.chat(`/captcha ${codeMatch[1]}`), 800);
+        setTimeout(() => bot.chat(`/captcha ${codeMatch[1]}`), 1200);
       }
     }
   });
 
   bot.on('spawn', () => {
-    console.log(`[${new Date().toISOString()}] ✅ Bot spawned! Staying forever with anti-kick...`);
+    console.log(`[${new Date().toISOString()}] ✅ Bot spawned! Login + Anti-AFK active`);
 
-    // === STRONG ANTI-AFK / ANTI-KICK ===
-    let afkInterval = setInterval(() => {
-      if (!bot.entity) return;
+    // Try login again after spawn (in case it missed the prompt)
+    setTimeout(() => {
+      if (bot && !bot.ended) bot.chat(`/login ${PASSWORD}`);
+    }, 3000);
 
-      // Jump
-      bot.setControlState('jump', true);
-      setTimeout(() => bot.setControlState('jump', false), 350);
-
-      // Random look around
-      bot.look(Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.8);
-
-      // Occasional small movement
-      if (Math.random() > 0.7) {
-        bot.setControlState('forward', true);
-        setTimeout(() => bot.setControlState('forward', false), 600);
+    // === Jump every 30 seconds ===
+    const jumpInterval = setInterval(() => {
+      if (bot && bot.entity && !bot.ended) {
+        console.log(`[${new Date().toISOString()}] 🦘 Jumping...`);
+        bot.setControlState('jump', true);
+        setTimeout(() => {
+          if (bot && bot.entity) bot.setControlState('jump', false);
+        }, 400);
       }
+    }, 30000);
 
-      // Sprint sometimes
-      if (Math.random() > 0.85) {
-        bot.setControlState('sprint', true);
-        setTimeout(() => bot.setControlState('sprint', false), 800);
-      }
-    }, 5200);
-
-    // Chat activity every 4-5 minutes
+    // Extra movement every 2 minutes to be safe
     setInterval(() => {
-      if (bot.entity) bot.chat('👍');
-    }, 270000);
+      if (bot && bot.entity) {
+        bot.look(Math.random() * Math.PI * 2, 0);
+      }
+    }, 120000);
   });
 
-  // Auto Respawn if died
   bot.on('death', () => {
-    console.log(`[${new Date().toISOString()}] 💀 Bot died, respawning...`);
-    setTimeout(() => {
-      if (bot && !bot.ended) bot.respawn();
-    }, 1500);
+    console.log(`[${new Date().toISOString()}] Bot died, respawning...`);
+    setTimeout(() => bot.respawn(), 2000);
   });
 
   bot.on('end', (reason) => {
-    console.log(`[\( {new Date().toISOString()}] Disconnected ( \){reason}). Reconnecting in 6s...`);
-    setTimeout(createBot, 6000);
+    console.log(`[${new Date().toISOString()}] Disconnected: ${reason}`);
+    isRunning = false;
+    setTimeout(createBot, 10000);
+  });
+
+  bot.on('kicked', (reason) => {
+    console.log(`[${new Date().toISOString()}] Kicked: ${reason}`);
+    isRunning = false;
+    setTimeout(createBot, 15000);
   });
 
   bot.on('error', (err) => {
     console.error(`[${new Date().toISOString()}] Error:`, err.message);
-  });
-
-  bot.on('kicked', (reason) => {
-    console.log(`[${new Date().toISOString()}] Kicked:`, reason);
-    setTimeout(createBot, 8000);
+    isRunning = false;
   });
 }
 
+// Start the bot
 createBot();
 
 process.on('SIGINT', () => process.exit(0));
