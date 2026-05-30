@@ -22,82 +22,94 @@ function createBot() {
     checkTimeoutInterval: 300000,
   });
 
-  // === IMPROVED AUTO LOGIN ===
+  // === AUTO LOGIN ===
   bot.on('chat', (username, message) => {
     if (username === bot.username) return;
 
-    const msg = message.toLowerCase().trim();
+    const msg = message.toLowerCase();
 
     if (msg.includes('login') || msg.includes('/l') || msg.includes('password') || 
         msg.includes('log in') || msg.includes('logged out') || msg.includes('authenticate')) {
-      
-      console.log(`[${new Date().toISOString()}] 🔑 Login prompt detected → Sending /login`);
-      setTimeout(() => {
-        bot.chat(`/login ${PASSWORD}`);
-      }, 1800);
+      console.log(`[${new Date().toISOString()}] 🔑 Sending login...`);
+      setTimeout(() => bot.chat(`/login ${PASSWORD}`), 1500);
     }
 
-    // Captcha fallback
     if (msg.includes('captcha')) {
       const codeMatch = message.match(/([A-Za-z0-9]{4,8})/);
       if (codeMatch) {
         console.log(`[${new Date().toISOString()}] 🔢 Captcha: ${codeMatch[1]}`);
-        setTimeout(() => bot.chat(`/captcha ${codeMatch[1]}`), 1200);
+        setTimeout(() => bot.chat(`/captcha ${codeMatch[1]}`), 1000);
       }
     }
   });
 
   bot.on('spawn', () => {
-    console.log(`[${new Date().toISOString()}] ✅ Bot spawned! Login + Anti-AFK active`);
+    console.log(`[${new Date().toISOString()}] ✅ Bot spawned successfully!`);
 
-    // Try login again after spawn (in case it missed the prompt)
+    // Try login after spawn
     setTimeout(() => {
       if (bot && !bot.ended) bot.chat(`/login ${PASSWORD}`);
-    }, 3000);
+    }, 2500);
 
-    // === Jump every 30 seconds ===
-    const jumpInterval = setInterval(() => {
-      if (bot && bot.entity && !bot.ended) {
-        console.log(`[${new Date().toISOString()}] 🦘 Jumping...`);
-        bot.setControlState('jump', true);
-        setTimeout(() => {
-          if (bot && bot.entity) bot.setControlState('jump', false);
-        }, 400);
-      }
+    // === ANTI-AFK: Jump every 30 seconds + extra movement ===
+    setInterval(() => {
+      if (!bot || bot.ended || !bot.entity) return;
+      console.log(`[${new Date().toISOString()}] 🦘 Jumping...`);
+      bot.setControlState('jump', true);
+      setTimeout(() => bot.setControlState('jump', false), 450);
+      
+      // Random look
+      bot.look(Math.random() * Math.PI * 2, (Math.random() - 0.5) * 0.6);
     }, 30000);
 
-    // Extra movement every 2 minutes to be safe
+    // Extra safety movement every 90 seconds
     setInterval(() => {
       if (bot && bot.entity) {
-        bot.look(Math.random() * Math.PI * 2, 0);
+        bot.setControlState('forward', true);
+        setTimeout(() => bot.setControlState('forward', false), 800);
       }
-    }, 120000);
+    }, 90000);
   });
 
+  // === IMPROVED DEATH HANDLING ===
   bot.on('death', () => {
-    console.log(`[${new Date().toISOString()}] Bot died, respawning...`);
-    setTimeout(() => bot.respawn(), 2000);
+    console.log(`[${new Date().toISOString()}] 💀 Bot died (possibly in water). Respawning...`);
+    setTimeout(() => {
+      if (bot && !bot.ended) {
+        bot.respawn();
+      }
+    }, 1800);
+  });
+
+  // Force respawn if health is low
+  bot.on('health', () => {
+    if (bot.health < 8 && bot.entity) {
+      console.log(`[${new Date().toISOString()}] ❤️ Low health detected, jumping to survive...`);
+      bot.setControlState('jump', true);
+      setTimeout(() => bot.setControlState('jump', false), 600);
+    }
   });
 
   bot.on('end', (reason) => {
-    console.log(`[${new Date().toISOString()}] Disconnected: ${reason}`);
+    console.log(`[${new Date().toISOString()}] Disconnected: ${reason}. Reconnecting in 8 seconds...`);
     isRunning = false;
-    setTimeout(createBot, 10000);
+    setTimeout(createBot, 8000);
   });
 
   bot.on('kicked', (reason) => {
     console.log(`[${new Date().toISOString()}] Kicked: ${reason}`);
     isRunning = false;
-    setTimeout(createBot, 15000);
+    setTimeout(createBot, 12000);
   });
 
   bot.on('error', (err) => {
     console.error(`[${new Date().toISOString()}] Error:`, err.message);
     isRunning = false;
+    setTimeout(createBot, 10000);
   });
 }
 
-// Start the bot
+// Start
 createBot();
 
 process.on('SIGINT', () => process.exit(0));
