@@ -40,8 +40,9 @@ function createBot() {
 
   bot = mineflayer.createBot({
     host: HOST,
+    port: 47593,
     username: USERNAME,
-    version: '1.21.1',           // ← pinned to your server version
+    version: '1.21.1',
     checkTimeoutInterval: 600000,
   });
 
