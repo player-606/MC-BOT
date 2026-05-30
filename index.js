@@ -21,7 +21,6 @@ server.listen(HTTP_PORT, () => console.log(`[HTTP] Listening on port ${HTTP_PORT
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || '';
 if (RENDER_URL) {
   setInterval(() => {
-    // Use https for Render URLs (https://xxx.onrender.com)
     const lib = RENDER_URL.startsWith('https') ? https : http;
     lib.get(RENDER_URL, (res) => {
       console.log(`[${new Date().toISOString()}] 🏓 Self-ping ${res.statusCode}`);
@@ -55,7 +54,6 @@ function createBot() {
     checkTimeoutInterval: 600000,
   });
 
-  // Guard so only ONE of kicked/end/error triggers a reconnect
   let disconnected = false;
   function onDisconnect(label, reason, delay) {
     if (disconnected) return;
@@ -101,19 +99,19 @@ function createBot() {
   bot.on('kicked', (reason) => {
     const r = (reason || '').toLowerCase();
     const delay =
-      r.includes('throttl')    ? 90000
-      : r.includes('already')  ? 40000
+      r.includes('throttl')    ? 15000  // was 90s, now 15s
+      : r.includes('already')  ? 10000  // was 40s, now 10s
       : r.includes('outdated') ? 5000
-      : 25000;
+      : 5000;                           // was 25s, now 5s
     onDisconnect('kicked', reason, delay);
   });
 
   bot.on('end', (reason) => {
-    onDisconnect('end', reason, 20000);
+    onDisconnect('end', reason, 5000);  // was 20s, now 5s
   });
 
   bot.on('error', (err) => {
-    onDisconnect('error', err.message, 20000);
+    onDisconnect('error', err.message, 5000); // was 20s, now 5s
   });
 }
 
@@ -122,9 +120,8 @@ function cleanup() {
   if (antiAfkInterval) { clearInterval(antiAfkInterval); antiAfkInterval = null; }
 }
 
-// 60s delay on startup to clear any Aternos throttle
-console.log(`[${new Date().toISOString()}] ⏳ Waiting 60s before first connect...`);
-setTimeout(createBot, 60000);
+// Connect immediately, no delay
+createBot();
 
 // Heartbeat
 setInterval(() => {
