@@ -1,5 +1,6 @@
 const mineflayer = require('mineflayer');
 const http = require('http');
+const https = require('https');
 
 const HOST = '606smp.aternos.me';
 const PORT_MC = 47593;
@@ -20,7 +21,9 @@ server.listen(HTTP_PORT, () => console.log(`[HTTP] Listening on port ${HTTP_PORT
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || '';
 if (RENDER_URL) {
   setInterval(() => {
-    http.get(RENDER_URL, (res) => {
+    // Use https for Render URLs (https://xxx.onrender.com)
+    const lib = RENDER_URL.startsWith('https') ? https : http;
+    lib.get(RENDER_URL, (res) => {
       console.log(`[${new Date().toISOString()}] 🏓 Self-ping ${res.statusCode}`);
     }).on('error', (e) => {
       console.error(`[${new Date().toISOString()}] Self-ping failed: ${e.message}`);
@@ -119,7 +122,7 @@ function cleanup() {
   if (antiAfkInterval) { clearInterval(antiAfkInterval); antiAfkInterval = null; }
 }
 
-// 60s delay on startup to clear Aternos throttle from previous session
+// 60s delay on startup to clear any Aternos throttle
 console.log(`[${new Date().toISOString()}] ⏳ Waiting 60s before first connect...`);
 setTimeout(createBot, 60000);
 
