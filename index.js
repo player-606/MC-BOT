@@ -1,4 +1,3 @@
-cat > /mnt/user-data/outputs/index.js << 'EOF'
 const mineflayer = require('mineflayer');
 const http = require('http');
 const https = require('https');
@@ -35,6 +34,7 @@ let keepaliveInterval = null;
 let positionInterval = null;
 let loggedIn = false;
 let connecting = false;
+let alreadyOnlineRetries = 0;
 
 // ── Reconnect ─────────────────────────────────────────────────────────────
 function scheduleReconnect(ms) {
@@ -121,6 +121,7 @@ function createBot() {
   bot.on('spawn', () => {
     clearTimeout(spawnTimeout);
     connecting = false;
+    alreadyOnlineRetries = 0; // reset on successful spawn
     console.log(`[${new Date().toISOString()}] ✅ Spawned!`);
 
     // Hook keepalive after spawn too (client exists for sure now)
@@ -193,7 +194,20 @@ function createBot() {
     clearTimeout(spawnTimeout);
     const r = (typeof reason === 'string' ? reason : JSON.stringify(reason) || '').toLowerCase();
     console.log(`[${new Date().toISOString()}] 👢 Kicked: ${typeof reason === 'string' ? reason : JSON.stringify(reason)}`);
-    const delay = r.includes('throttl') ? 8000 : r.includes('already') ? 5000 : 2000;
+
+    // If the username is already online, back off exponentially so we don't
+    // spam-reconnect while the previous session is still alive on the server.
+    if (r.includes('already')) {
+      alreadyOnlineRetries++;
+      // Backoff: 15s, 30s, 60s, 120s … capped at 5 minutes
+      const delay = Math.min(15000 * Math.pow(2, alreadyOnlineRetries - 1), 5 * 60 * 1000);
+      console.log(`[${new Date().toISOString()}] ⚠️ Username already online — waiting ${delay/1000}s before retry (attempt ${alreadyOnlineRetries})`);
+      scheduleReconnect(delay);
+      return;
+    }
+
+    alreadyOnlineRetries = 0;
+    const delay = r.includes('throttl') ? 8000 : 2000;
     scheduleReconnect(delay);
   });
 
@@ -218,5 +232,3 @@ setInterval(() => {
 
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));
-EOF
-echo "done"
