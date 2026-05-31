@@ -38,10 +38,10 @@ let connecting = false;
 // ── Reconnect ─────────────────────────────────────────────────────────────
 function scheduleReconnect(ms) {
   if (reconnectTimer) return;
-  
-  // ONLY CHANGE: Don't reconnect if bot is already connected
+
+  // ONLY MAKE IT CONNECT IF HES NOT INSIDE
   if (bot && !bot.ended && loggedIn) {
-    console.log(`[${new Date().toISOString()}] ✅ Bot is already in the server, skipping reconnect`);
+    console.log(`[${new Date().toISOString()}] ✅ Bot is already playing, skipping reconnect`);
     return;
   }
 
@@ -50,8 +50,12 @@ function scheduleReconnect(ms) {
   if (antiAfkInterval)  { clearInterval(antiAfkInterval);  antiAfkInterval  = null; }
   if (keepaliveInterval){ clearInterval(keepaliveInterval); keepaliveInterval = null; }
   if (positionInterval) { clearInterval(positionInterval);  positionInterval  = null; }
+
   console.log(`[${new Date().toISOString()}] ⏳ Reconnecting in ${ms/1000}s...`);
-  reconnectTimer = setTimeout(() => { reconnectTimer = null; createBot(); }, ms);
+  reconnectTimer = setTimeout(() => { 
+    reconnectTimer = null; 
+    createBot(); 
+  }, ms);
 }
 
 // ── Anti-AFK ──────────────────────────────────────────────────────────────
@@ -89,6 +93,11 @@ function doAntiAfk() {
 // ── Bot ───────────────────────────────────────────────────────────────────
 function createBot() {
   if (connecting) return;
+  if (bot && !bot.ended && loggedIn) {
+    console.log(`[${new Date().toISOString()}] ✅ Bot already connected, skipping new connection`);
+    return;
+  }
+
   connecting = true;
   loggedIn = false;
   console.log(`[${new Date().toISOString()}] 🔌 Connecting...`);
@@ -109,7 +118,7 @@ function createBot() {
     return;
   }
 
-  // Force reconnect if no spawn in 25s
+  // ... (rest of your original code remains unchanged)
   const spawnTimeout = setTimeout(() => {
     console.log(`[${new Date().toISOString()}] ⚠️ No spawn, reconnecting...`);
     try { bot.end(); } catch (e) {}
@@ -210,7 +219,7 @@ function createBot() {
 createBot();
 
 setInterval(() => {
-  console.log(`[\( {new Date().toISOString()}] 💓 Connected: \){bot ? !bot.ended : false} LoggedIn:${loggedIn}`);
+  console.log(`[${new Date().toISOString()}] 💓 Connected: ${bot ? !bot.ended : false} | LoggedIn: ${loggedIn}`);
 }, 60000);
 
 process.on('SIGINT', () => process.exit(0));
