@@ -134,9 +134,9 @@ function createBot() {
 
   bot.on('kicked', (reason) => {
     clearTimeout(spawnTimeout);
-    const r = (reason || '').toLowerCase();
+    const r = (typeof reason === "string" ? reason : JSON.stringify(reason) || "").toLowerCase();
     const delay = r.includes('throttl') ? 8000 : r.includes('already') ? 5000 : 2000;
-    console.log(`[${new Date().toISOString()}] 👢 Kicked: ${reason}`);
+    console.log(`[${new Date().toISOString()}] 👢 Kicked: ${typeof reason === "string" ? reason : JSON.stringify(reason)}`);
     scheduleReconnect(delay);
   });
 
