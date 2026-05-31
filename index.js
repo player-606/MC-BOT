@@ -35,6 +35,7 @@ let positionInterval = null;
 let loggedIn = false;
 let connecting = false;
 let alreadyOnlineRetries = 0;
+let waitingForAlready = false; // true while backing off for "already online"
 
 // ── Reconnect ─────────────────────────────────────────────────────────────
 function scheduleReconnect(ms) {
@@ -122,6 +123,7 @@ function createBot() {
     clearTimeout(spawnTimeout);
     connecting = false;
     alreadyOnlineRetries = 0; // reset on successful spawn
+    waitingForAlready = false;
     console.log(`[${new Date().toISOString()}] ✅ Spawned!`);
 
     // Hook keepalive after spawn too (client exists for sure now)
@@ -152,7 +154,8 @@ function createBot() {
           x: bot.entity.position.x,
           y: bot.entity.position.y,
           z: bot.entity.position.z,
-          onGround: true,
+          flags: 0,
+          teleportId: 0,
         });
       } catch (e) {}
     }, 1000);
@@ -199,6 +202,7 @@ function createBot() {
     // spam-reconnect while the previous session is still alive on the server.
     if (r.includes('already')) {
       alreadyOnlineRetries++;
+      waitingForAlready = true;
       // Backoff: 15s, 30s, 60s, 120s … capped at 5 minutes
       const delay = Math.min(15000 * Math.pow(2, alreadyOnlineRetries - 1), 5 * 60 * 1000);
       console.log(`[${new Date().toISOString()}] ⚠️ Username already online — waiting ${delay/1000}s before retry (attempt ${alreadyOnlineRetries})`);
@@ -207,6 +211,7 @@ function createBot() {
     }
 
     alreadyOnlineRetries = 0;
+    waitingForAlready = false;
     const delay = r.includes('throttl') ? 8000 : 2000;
     scheduleReconnect(delay);
   });
@@ -214,12 +219,14 @@ function createBot() {
   bot.on('end', (reason) => {
     clearTimeout(spawnTimeout);
     console.log(`[${new Date().toISOString()}] 🔴 End: ${reason}`);
+    if (waitingForAlready) return; // backoff timer already set by 'kicked'
     scheduleReconnect(2000);
   });
 
   bot.on('error', (err) => {
     clearTimeout(spawnTimeout);
     console.log(`[${new Date().toISOString()}] ❌ Error: ${err.message}`);
+    if (waitingForAlready) return;
     scheduleReconnect(2000);
   });
 }
@@ -232,3 +239,4 @@ setInterval(() => {
 
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));
+         
