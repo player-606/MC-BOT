@@ -8,46 +8,72 @@ const USERNAME = 'Bot';
 const PASSWORD = '@.Bot_2012.@';
 const HTTP_PORT = process.env.PORT || 3000;
 
-console.log('🚀 Aternos Keeper Bot starting...');
+console.log('🚀 Bot starting...');
 
-// HTTP Server for Render.com
+// HTTP server
 const server = http.createServer((req, res) => {
   res.writeHead(200);
   res.end(`alive:${bot ? !bot.ended : false}\n`);
 });
 server.listen(HTTP_PORT, () => console.log(`[HTTP] Port ${HTTP_PORT}`));
 
-// Keep Render awake
+// Self-ping
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || '';
 if (RENDER_URL) {
   setInterval(() => {
     const lib = RENDER_URL.startsWith('https') ? https : http;
-    lib.get(RENDER_URL).on('error', () => {});
-  }, 120000);
+    lib.get(RENDER_URL, () => {}).on('error', () => {});
+  }, 2 * 60 * 1000);
 }
 
 // State
 let bot = null;
 let reconnectTimer = null;
-let intervals = [];
+let antiAfkInterval = null;
+let keepaliveInterval = null;
+let positionInterval = null;
+let loggedIn = false;
+let connecting = false;
 
-function clearAllIntervals() {
-  intervals.forEach(clearInterval);
-  intervals = [];
-}
-
-function scheduleReconnect(ms = 400) {
+// Fast reconnect
+function scheduleReconnect(ms = 600) {
   if (reconnectTimer) return;
-  clearAllIntervals();
+  connecting = false;
+  loggedIn = false;
+  if (antiAfkInterval) { clearInterval(antiAfkInterval); antiAfkInterval = null; }
+  if (keepaliveInterval) { clearInterval(keepaliveInterval); keepaliveInterval = null; }
+  if (positionInterval) { clearInterval(positionInterval); positionInterval = null; }
+
   console.log(`[${new Date().toISOString()}] ⏳ Reconnecting in ${ms}ms...`);
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    createBot();
+  reconnectTimer = setTimeout(() => { 
+    reconnectTimer = null; 
+    createBot(); 
   }, ms);
 }
 
+// Anti-AFK (your original style)
+function doAntiAfk() {
+  if (!bot || bot.ended || !bot.entity || !loggedIn) return;
+  const rand = Math.random();
+  if (rand < 0.25) {
+    bot.setControlState('forward', true);
+    setTimeout(() => { if (bot && !bot.ended) bot.setControlState('forward', false); }, 500);
+  } else if (rand < 0.5) {
+    bot.setControlState('jump', true);
+    setTimeout(() => { if (bot && !bot.ended) bot.setControlState('jump', false); }, 300);
+  } else if (rand < 0.75) {
+    bot.look(Math.random() * Math.PI * 2, 0);
+  } else {
+    bot.setControlState('sneak', true);
+    setTimeout(() => { if (bot && !bot.ended) bot.setControlState('sneak', false); }, 700);
+  }
+}
+
 function createBot() {
-  console.log(`[${new Date().toISOString()}] 🔌 Connecting to server...`);
+  if (connecting) return;
+  connecting = true;
+  loggedIn = false;
+  console.log(`[${new Date().toISOString()}] 🔌 Connecting...`);
 
   bot = mineflayer.createBot({
     host: HOST,
@@ -58,95 +84,79 @@ function createBot() {
     hideErrors: false,
   });
 
-  // Force reconnect if no spawn
   const spawnTimeout = setTimeout(() => {
-    console.log(`[${new Date().toISOString()}] ⚠️ No spawn, forcing reconnect`);
-    try { bot.end(); } catch {}
-  }, 18000);
+    console.log(`[${new Date().toISOString()}] ⚠️ No spawn, reconnecting...`);
+    try { bot.end(); } catch (e) {}
+  }, 22000);
 
   // Manual keepalive
   bot._client?.on('keep_alive', (packet) => {
     try {
       bot._client.write('keep_alive', { keepAliveId: packet.keepAliveId });
-    } catch {}
+    } catch (e) {}
   });
 
   bot.on('spawn', () => {
     clearTimeout(spawnTimeout);
-    console.log(`[${new Date().toISOString()}] ✅ Spawned! Keeping server alive.`);
+    connecting = false;
+    console.log(`[${new Date().toISOString()}] ✅ Spawned!`);
 
-    // Quick login
     setTimeout(() => {
       if (bot && !bot.ended) {
         bot.chat(`/login ${PASSWORD}`);
+        loggedIn = true;
+        console.log(`[${new Date().toISOString()}] 🔑 Login sent`);
       }
-    }, 700);
+    }, 1000);
 
-    // Aggressive position + activity packets (best for Aternos)
-    intervals.push(setInterval(() => {
-      if (!bot?.entity || bot.ended) return;
+    // Position every 800ms
+    positionInterval = setInterval(() => {
+      if (!bot || bot.ended || !bot.entity) return;
       try {
         bot._client.write('position', {
           x: bot.entity.position.x,
           y: bot.entity.position.y,
           z: bot.entity.position.z,
-          onGround: true
+          onGround: true,
         });
-      } catch {}
-    }, 650));
+      } catch (e) {}
+    }, 800);
 
-    // Swing arm regularly
-    intervals.push(setInterval(() => {
-      if (bot && !bot.ended) bot.swingArm();
-    }, 1900));
+    // Swing arm
+    keepaliveInterval = setInterval(() => {
+      if (!bot || bot.ended || !loggedIn) return;
+      try { bot.swingArm(); } catch (e) {}
+    }, 2500);
 
-    // Light movement + look around
-    intervals.push(setInterval(() => {
-      if (!bot || bot.ended) return;
-      const r = Math.random();
-      if (r < 0.5) {
-        bot.look(Math.random() * Math.PI * 2, 0);
-      } else if (r < 0.7) {
-        bot.setControlState('forward', true);
-        setTimeout(() => bot.setControlState('forward', false), 350);
-      }
-    }, 7500));
-
-    // Occasional chat (helps server think player is active)
-    intervals.push(setInterval(() => {
-      if (bot && !bot.ended) {
-        bot.chat([".", "z", "gg", "o/"][Math.floor(Math.random()*4)]);
-      }
-    }, 210000)); // every \~3.5 minutes
+    antiAfkInterval = setInterval(doAntiAfk, 9000);
   });
 
   bot.on('death', () => {
-    console.log(`[${new Date().toISOString()}] 💀 Respawning instantly`);
-    setTimeout(() => bot?.respawn(), 80);
+    console.log(`[${new Date().toISOString()}] 💀 Respawning...`);
+    setTimeout(() => { if (bot && !bot.ended) bot.respawn(); }, 100);
   });
 
   bot.on('kicked', (reason) => {
     console.log(`[${new Date().toISOString()}] 👢 Kicked: ${reason}`);
-    scheduleReconnect(600);
+    scheduleReconnect(800);
   });
 
   bot.on('end', (reason) => {
-    console.log(`[${new Date().toISOString()}] 🔴 Disconnected: ${reason}`);
-    scheduleReconnect(400);
+    console.log(`[${new Date().toISOString()}] 🔴 End: ${reason}`);
+    scheduleReconnect(600);
   });
 
   bot.on('error', (err) => {
     console.log(`[${new Date().toISOString()}] ❌ Error: ${err.message}`);
-    scheduleReconnect(600);
+    scheduleReconnect(800);
   });
 }
 
 createBot();
 
-// Status report
 setInterval(() => {
-  console.log(`[${new Date().toISOString()}] 💓 Bot Status: ${bot && !bot.ended ? 'Connected' : 'Disconnected'}`);
-}, 45000);
+  console.log(`[${new Date().toISOString()}] 💓 Status - Connected: ${bot && !bot.ended}`);
+}, 60000);
 
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));
