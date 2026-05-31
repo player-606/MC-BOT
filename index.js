@@ -10,12 +10,14 @@ const HTTP_PORT = process.env.PORT || 3000;
 
 console.log('🚀 Bot starting...');
 
+// ── HTTP server (keeps Render alive) ──────────────────────────────────────
 const server = http.createServer((req, res) => {
   res.writeHead(200);
   res.end(`alive:${bot ? !bot.ended : false}\n`);
 });
 server.listen(HTTP_PORT, () => console.log(`[HTTP] Port ${HTTP_PORT}`));
 
+// ── Self-ping every 2 min to prevent Render sleep ─────────────────────────
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || '';
 if (RENDER_URL) {
   setInterval(() => {
@@ -24,27 +26,32 @@ if (RENDER_URL) {
   }, 2 * 60 * 1000);
 }
 
+// ── State ──────────────────────────────────────────────────────────────────
 let bot = null;
 let reconnectTimer = null;
 let antiAfkInterval = null;
 let loggedIn = false;
 let connecting = false;
 
+// ── Reconnect scheduler (prevents double reconnects) ──────────────────────
 function scheduleReconnect(ms) {
-  if (reconnectTimer) return; // already scheduled
+  if (reconnectTimer) return;
   connecting = false;
   loggedIn = false;
   if (antiAfkInterval) { clearInterval(antiAfkInterval); antiAfkInterval = null; }
+  console.log(`[${new Date().toISOString()}] ⏳ Reconnecting in ${ms / 1000}s...`);
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     createBot();
   }, ms);
 }
 
+// ── Anti-AFK: varied movements every 10s ──────────────────────────────────
 function doAntiAfk() {
   if (!bot || bot.ended || !bot.entity || !loggedIn) return;
   const rand = Math.random();
   if (rand < 0.25) {
+    // Walk forward then back
     bot.setControlState('forward', true);
     setTimeout(() => {
       if (!bot || bot.ended) return;
@@ -56,9 +63,11 @@ function doAntiAfk() {
       }, 500);
     }, 500);
   } else if (rand < 0.5) {
+    // Jump
     bot.setControlState('jump', true);
     setTimeout(() => bot && bot.setControlState('jump', false), 300);
   } else if (rand < 0.75) {
+    // Slow head spin
     let angle = 0;
     const spin = setInterval(() => {
       if (!bot || bot.ended) { clearInterval(spin); return; }
@@ -67,11 +76,13 @@ function doAntiAfk() {
       if (angle >= Math.PI * 2) clearInterval(spin);
     }, 80);
   } else {
+    // Sneak
     bot.setControlState('sneak', true);
     setTimeout(() => bot && bot.setControlState('sneak', false), 700);
   }
 }
 
+// ── Main bot logic ─────────────────────────────────────────────────────────
 function createBot() {
   if (connecting) return;
   connecting = true;
@@ -84,68 +95,83 @@ function createBot() {
       port: PORT_MC,
       username: USERNAME,
       version: '1.21.11',
-      checkTimeoutInterval: 10000,
+      checkTimeoutInterval: 120000, // 2 min — gives plenty of time to respond to keepalive
       hideErrors: false,
     });
-  } catch(e) {
+  } catch (e) {
     console.log(`[${new Date().toISOString()}] ❌ Failed to create bot: ${e.message}`);
     connecting = false;
     scheduleReconnect(3000);
     return;
   }
 
-  // If no spawn in 20s, force reconnect
+  // If no spawn within 25s, force reconnect
   const spawnTimeout = setTimeout(() => {
-    console.log(`[${new Date().toISOString()}] ⚠️ No spawn, reconnecting...`);
-    try { bot.end(); } catch(e) {}
-  }, 20000);
+    console.log(`[${new Date().toISOString()}] ⚠️ No spawn in 25s, reconnecting...`);
+    try { bot.end(); } catch (e) {}
+  }, 25000);
 
   bot.on('spawn', () => {
     clearTimeout(spawnTimeout);
     connecting = false;
     console.log(`[${new Date().toISOString()}] ✅ Spawned!`);
+
+    // Login right away
     setTimeout(() => {
       if (bot && !bot.ended) {
         bot.chat(`/login ${PASSWORD}`);
         loggedIn = true;
+        console.log(`[${new Date().toISOString()}] 🔑 Login sent`);
       }
     }, 1500);
+
+    // Start anti-AFK
     if (antiAfkInterval) clearInterval(antiAfkInterval);
     antiAfkInterval = setInterval(doAntiAfk, 10000);
   });
 
+  // Re-login if server asks
   bot.on('chat', (username, message) => {
     if (username === bot.username) return;
     const msg = message.toLowerCase();
-    if (msg.includes('login') || msg.includes('password') || msg.includes('logged out')) {
+    if (msg.includes('login') || msg.includes('password') || msg.includes('logged out') || msg.includes('/login')) {
       loggedIn = false;
       setTimeout(() => {
         if (bot && !bot.ended) {
           bot.chat(`/login ${PASSWORD}`);
           loggedIn = true;
+          console.log(`[${new Date().toISOString()}] 🔑 Re-logged in`);
         }
       }, 1000);
     }
   });
 
+  // Auto respawn instantly
   bot.on('death', () => {
+    console.log(`[${new Date().toISOString()}] 💀 Died, respawning...`);
     setTimeout(() => bot && bot.respawn(), 500);
   });
 
+  // Kicked — detect throttle/already playing and wait longer, else reconnect fast
   bot.on('kicked', (reason) => {
     clearTimeout(spawnTimeout);
-    const r = (typeof reason === "string" ? reason : JSON.stringify(reason) || "").toLowerCase();
-    const delay = r.includes('throttl') ? 8000 : r.includes('already') ? 5000 : 2000;
-    console.log(`[${new Date().toISOString()}] 👢 Kicked: ${typeof reason === "string" ? reason : JSON.stringify(reason)}`);
+    const r = (typeof reason === 'string' ? reason : JSON.stringify(reason) || '').toLowerCase();
+    console.log(`[${new Date().toISOString()}] 👢 Kicked: ${typeof reason === 'string' ? reason : JSON.stringify(reason)}`);
+    const delay =
+      r.includes('throttl')   ? 8000
+      : r.includes('already') ? 5000
+      : 2000;
     scheduleReconnect(delay);
   });
 
+  // Disconnected — rejoin in 2s
   bot.on('end', (reason) => {
     clearTimeout(spawnTimeout);
     console.log(`[${new Date().toISOString()}] 🔴 End: ${reason}`);
     scheduleReconnect(2000);
   });
 
+  // Error — rejoin in 2s
   bot.on('error', (err) => {
     clearTimeout(spawnTimeout);
     console.log(`[${new Date().toISOString()}] ❌ Error: ${err.message}`);
@@ -153,8 +179,10 @@ function createBot() {
   });
 }
 
+// ── Start immediately ──────────────────────────────────────────────────────
 createBot();
 
+// ── Heartbeat log every 60s ────────────────────────────────────────────────
 setInterval(() => {
   console.log(`[${new Date().toISOString()}] 💓 Connected:${bot ? !bot.ended : false} LoggedIn:${loggedIn}`);
 }, 60000);
