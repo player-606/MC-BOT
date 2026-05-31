@@ -1,3 +1,4 @@
+cat > /mnt/user-data/outputs/index.js << 'EOF'
 const mineflayer = require('mineflayer');
 const http = require('http');
 const https = require('https');
@@ -38,24 +39,13 @@ let connecting = false;
 // ── Reconnect ─────────────────────────────────────────────────────────────
 function scheduleReconnect(ms) {
   if (reconnectTimer) return;
-
-  // ONLY MAKE IT CONNECT IF HES NOT INSIDE
-  if (bot && !bot.ended && loggedIn) {
-    console.log(`[${new Date().toISOString()}] ✅ Bot is already playing, skipping reconnect`);
-    return;
-  }
-
   connecting = false;
   loggedIn = false;
   if (antiAfkInterval)  { clearInterval(antiAfkInterval);  antiAfkInterval  = null; }
   if (keepaliveInterval){ clearInterval(keepaliveInterval); keepaliveInterval = null; }
   if (positionInterval) { clearInterval(positionInterval);  positionInterval  = null; }
-
   console.log(`[${new Date().toISOString()}] ⏳ Reconnecting in ${ms/1000}s...`);
-  reconnectTimer = setTimeout(() => { 
-    reconnectTimer = null; 
-    createBot(); 
-  }, ms);
+  reconnectTimer = setTimeout(() => { reconnectTimer = null; createBot(); }, ms);
 }
 
 // ── Anti-AFK ──────────────────────────────────────────────────────────────
@@ -93,11 +83,6 @@ function doAntiAfk() {
 // ── Bot ───────────────────────────────────────────────────────────────────
 function createBot() {
   if (connecting) return;
-  if (bot && !bot.ended && loggedIn) {
-    console.log(`[${new Date().toISOString()}] ✅ Bot already connected, skipping new connection`);
-    return;
-  }
-
   connecting = true;
   loggedIn = false;
   console.log(`[${new Date().toISOString()}] 🔌 Connecting...`);
@@ -108,7 +93,7 @@ function createBot() {
       port: PORT_MC,
       username: USERNAME,
       version: '1.21.11',
-      checkTimeoutInterval: 300000,
+      checkTimeoutInterval: 300000, // 5 min — let OUR code handle keepalive
       hideErrors: false,
     });
   } catch (e) {
@@ -118,12 +103,15 @@ function createBot() {
     return;
   }
 
-  // ... (rest of your original code remains unchanged)
+  // Force reconnect if no spawn in 25s
   const spawnTimeout = setTimeout(() => {
     console.log(`[${new Date().toISOString()}] ⚠️ No spawn, reconnecting...`);
     try { bot.end(); } catch (e) {}
   }, 25000);
 
+  // ── Manually respond to keepalive packets immediately ──────────────────
+  // This is the key fix — mineflayer sometimes delays keepalive responses
+  // which causes "Timed out" on the server side
   bot._client && bot._client.on('keep_alive', (packet) => {
     try {
       bot._client.write('keep_alive', { keepAliveId: packet.keepAliveId });
@@ -135,6 +123,7 @@ function createBot() {
     connecting = false;
     console.log(`[${new Date().toISOString()}] ✅ Spawned!`);
 
+    // Hook keepalive after spawn too (client exists for sure now)
     try {
       bot._client.removeAllListeners('keep_alive');
       bot._client.on('keep_alive', (packet) => {
@@ -144,6 +133,7 @@ function createBot() {
       });
     } catch(e) {}
 
+    // Login
     setTimeout(() => {
       if (bot && !bot.ended) {
         bot.chat(`/login ${PASSWORD}`);
@@ -152,6 +142,7 @@ function createBot() {
       }
     }, 1500);
 
+    // Send position packet every 1s so server never thinks we're gone
     if (positionInterval) clearInterval(positionInterval);
     positionInterval = setInterval(() => {
       if (!bot || bot.ended || !bot.entity) return;
@@ -165,16 +156,19 @@ function createBot() {
       } catch (e) {}
     }, 1000);
 
+    // Swing arm every 3s as extra activity signal
     if (keepaliveInterval) clearInterval(keepaliveInterval);
     keepaliveInterval = setInterval(() => {
       if (!bot || bot.ended || !bot.entity || !loggedIn) return;
       try { bot.swingArm(); } catch (e) {}
     }, 3000);
 
+    // Anti-AFK every 10s
     if (antiAfkInterval) clearInterval(antiAfkInterval);
     antiAfkInterval = setInterval(doAntiAfk, 10000);
   });
 
+  // Re-login if asked
   bot.on('chat', (username, message) => {
     if (username === bot.username) return;
     const msg = message.toLowerCase();
@@ -219,8 +213,10 @@ function createBot() {
 createBot();
 
 setInterval(() => {
-  console.log(`[${new Date().toISOString()}] 💓 Connected: ${bot ? !bot.ended : false} | LoggedIn: ${loggedIn}`);
+  console.log(`[${new Date().toISOString()}] 💓 Connected:${bot ? !bot.ended : false} LoggedIn:${loggedIn}`);
 }, 60000);
 
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));
+EOF
+echo "done"
