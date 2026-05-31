@@ -8,32 +8,37 @@ const USERNAME = 'Bot';
 const PASSWORD = '@.Bot_2012.@';
 const HTTP_PORT = process.env.PORT || 3000;
 
-console.log('🚀 Aternos Keeper Bot starting...');
+console.log('🚀 Bot starting...');
 
 const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end(`Bot alive. Connected: ${bot ? !bot.ended : false}\n`);
+  res.writeHead(200);
+  res.end(`alive:${bot ? !bot.ended : false}\n`);
 });
-server.listen(HTTP_PORT, () => console.log(`[HTTP] Listening on port ${HTTP_PORT}`));
+server.listen(HTTP_PORT, () => console.log(`[HTTP] Port ${HTTP_PORT}`));
 
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || '';
 if (RENDER_URL) {
   setInterval(() => {
     const lib = RENDER_URL.startsWith('https') ? https : http;
     lib.get(RENDER_URL, () => {}).on('error', () => {});
-  }, 2 * 60 * 1000); // every 2 min
+  }, 2 * 60 * 1000);
 }
 
 let bot = null;
-let isRunning = false;
+let reconnectTimer = null;
 let antiAfkInterval = null;
 let loggedIn = false;
-let connectTimeout = null;
+let connecting = false;
 
-function scheduleReconnect(ms, reason) {
-  console.log(`[${new Date().toISOString()}] ⏳ Reconnecting in ${ms / 1000}s... (${reason})`);
-  cleanup();
-  setTimeout(createBot, ms);
+function scheduleReconnect(ms) {
+  if (reconnectTimer) return; // already scheduled
+  connecting = false;
+  loggedIn = false;
+  if (antiAfkInterval) { clearInterval(antiAfkInterval); antiAfkInterval = null; }
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    createBot();
+  }, ms);
 }
 
 function doAntiAfk() {
@@ -68,40 +73,51 @@ function doAntiAfk() {
 }
 
 function createBot() {
-  if (isRunning) return;
-  isRunning = true;
+  if (connecting) return;
+  connecting = true;
   loggedIn = false;
   console.log(`[${new Date().toISOString()}] 🔌 Connecting...`);
 
-  connectTimeout = setTimeout(() => {
-    console.log(`[${new Date().toISOString()}] ⚠️ Spawn timeout, forcing reconnect...`);
-    try { bot && bot.end(); } catch(e) {}
-    scheduleReconnect(2000, 'spawn-timeout');
+  try {
+    bot = mineflayer.createBot({
+      host: HOST,
+      port: PORT_MC,
+      username: USERNAME,
+      version: '1.21.11',
+      checkTimeoutInterval: 10000,
+      hideErrors: false,
+    });
+  } catch(e) {
+    console.log(`[${new Date().toISOString()}] ❌ Failed to create bot: ${e.message}`);
+    connecting = false;
+    scheduleReconnect(3000);
+    return;
+  }
+
+  // If no spawn in 20s, force reconnect
+  const spawnTimeout = setTimeout(() => {
+    console.log(`[${new Date().toISOString()}] ⚠️ No spawn, reconnecting...`);
+    try { bot.end(); } catch(e) {}
   }, 20000);
 
-  bot = mineflayer.createBot({
-    host: HOST,
-    port: PORT_MC,
-    username: USERNAME,
-    version: '1.21.11',
-    checkTimeoutInterval: 10000, // detect dead connections in 10s
-    hideErrors: false,
+  bot.on('spawn', () => {
+    clearTimeout(spawnTimeout);
+    connecting = false;
+    console.log(`[${new Date().toISOString()}] ✅ Spawned!`);
+    setTimeout(() => {
+      if (bot && !bot.ended) {
+        bot.chat(`/login ${PASSWORD}`);
+        loggedIn = true;
+      }
+    }, 1500);
+    if (antiAfkInterval) clearInterval(antiAfkInterval);
+    antiAfkInterval = setInterval(doAntiAfk, 10000);
   });
-
-  let disconnected = false;
-  function onDisconnect(label, reason, delay) {
-    if (disconnected) return;
-    disconnected = true;
-    loggedIn = false;
-    if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
-    console.log(`[${new Date().toISOString()}] [${label}] ${reason}`);
-    scheduleReconnect(delay, label);
-  }
 
   bot.on('chat', (username, message) => {
     if (username === bot.username) return;
     const msg = message.toLowerCase();
-    if (msg.includes('login') || msg.includes('password') || msg.includes('log in') || msg.includes('logged out')) {
+    if (msg.includes('login') || msg.includes('password') || msg.includes('logged out')) {
       loggedIn = false;
       setTimeout(() => {
         if (bot && !bot.ended) {
@@ -112,54 +128,35 @@ function createBot() {
     }
   });
 
-  bot.on('spawn', () => {
-    if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
-    console.log(`[${new Date().toISOString()}] ✅ Spawned!`);
-    setTimeout(() => {
-      if (bot && !bot.ended) {
-        bot.chat(`/login ${PASSWORD}`);
-        loggedIn = true;
-      }
-    }, 1500);
-
-    if (antiAfkInterval) clearInterval(antiAfkInterval);
-    antiAfkInterval = setInterval(doAntiAfk, 10000); // every 10s
-  });
-
   bot.on('death', () => {
-    console.log(`[${new Date().toISOString()}] 💀 Respawning...`);
     setTimeout(() => bot && bot.respawn(), 500);
   });
 
   bot.on('kicked', (reason) => {
+    clearTimeout(spawnTimeout);
     const r = (reason || '').toLowerCase();
-    const delay =
-      r.includes('throttl')   ? 8000
-      : r.includes('already') ? 6000
-      : 2000;
-    onDisconnect('kicked', reason, delay);
+    const delay = r.includes('throttl') ? 8000 : r.includes('already') ? 5000 : 2000;
+    console.log(`[${new Date().toISOString()}] 👢 Kicked: ${reason}`);
+    scheduleReconnect(delay);
   });
 
   bot.on('end', (reason) => {
-    onDisconnect('end', reason, 2000);
+    clearTimeout(spawnTimeout);
+    console.log(`[${new Date().toISOString()}] 🔴 End: ${reason}`);
+    scheduleReconnect(2000);
   });
 
   bot.on('error', (err) => {
-    onDisconnect('error', err.message, 2000);
+    clearTimeout(spawnTimeout);
+    console.log(`[${new Date().toISOString()}] ❌ Error: ${err.message}`);
+    scheduleReconnect(2000);
   });
-}
-
-function cleanup() {
-  isRunning = false;
-  loggedIn = false;
-  if (antiAfkInterval) { clearInterval(antiAfkInterval); antiAfkInterval = null; }
-  if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null; }
 }
 
 createBot();
 
 setInterval(() => {
-  console.log(`[${new Date().toISOString()}] 💓 Connected: ${bot ? !bot.ended : false} | LoggedIn: ${loggedIn}`);
+  console.log(`[${new Date().toISOString()}] 💓 Connected:${bot ? !bot.ended : false} LoggedIn:${loggedIn}`);
 }, 60000);
 
 process.on('SIGINT', () => process.exit(0));
