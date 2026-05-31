@@ -1,4 +1,3 @@
-cat > /mnt/user-data/outputs/index.js << 'EOF'
 const mineflayer = require('mineflayer');
 const http = require('http');
 const https = require('https');
@@ -218,5 +217,3 @@ setInterval(() => {
 
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));
-EOF
-echo "done"
