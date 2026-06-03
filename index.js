@@ -143,7 +143,7 @@ function createBot() {
       host: HOST,
       port: PORT_MC,
       username: USERNAME,
-      version: '1.21.1',              // DO NOT CHANGE
+      version: '1.21.11',             // DO NOT CHANGE
       checkTimeoutInterval: 600000,   // 10 min — we handle keepalive ourselves
       hideErrors: false,
     });
