@@ -30,21 +30,17 @@ if (RENDER_URL) {
 let bot = null;
 let reconnectTimer = null;
 let antiAfkInterval = null;
-let keepaliveInterval = null;
-let positionInterval = null;
-let packetKeepaliveAttached = false;
+let armSwingInterval = null;
 let loggedIn = false;
+let loginSent = false;
 let connecting = false;
 let alreadyOnlineRetries = 0;
 let waitingForAlready = false;
-let loginSent = false; // guard: only send /login once per session
 
-// ── Cleanup all intervals ──────────────────────────────────────────────────
+// ── Cleanup ────────────────────────────────────────────────────────────────
 function clearAllIntervals() {
-  if (antiAfkInterval)  { clearInterval(antiAfkInterval);  antiAfkInterval  = null; }
-  if (keepaliveInterval){ clearInterval(keepaliveInterval); keepaliveInterval = null; }
-  if (positionInterval) { clearInterval(positionInterval);  positionInterval  = null; }
-  packetKeepaliveAttached = false;
+  if (antiAfkInterval) { clearInterval(antiAfkInterval); antiAfkInterval = null; }
+  if (armSwingInterval) { clearInterval(armSwingInterval); armSwingInterval = null; }
 }
 
 // ── Reconnect ─────────────────────────────────────────────────────────────
@@ -58,26 +54,11 @@ function scheduleReconnect(ms) {
   reconnectTimer = setTimeout(() => { reconnectTimer = null; createBot(); }, ms);
 }
 
-// ── Attach packet-level keepalive (call once per client) ──────────────────
-// This is the #1 fix for "Timed out" kicks. We intercept the raw keep_alive
-// packet and reply instantly, before mineflayer's own (sometimes delayed) handler.
-function attachPacketKeepalive() {
-  if (!bot || !bot._client || packetKeepaliveAttached) return;
-  packetKeepaliveAttached = true;
-  bot._client.on('keep_alive', (packet) => {
-    try {
-      bot._client.write('keep_alive', { keepAliveId: packet.keepAliveId });
-    } catch (e) {}
-  });
-}
-
 // ── Anti-AFK ──────────────────────────────────────────────────────────────
 function doAntiAfk() {
   if (!bot || bot.ended || !bot.entity || !loggedIn) return;
   const rand = Math.random();
-
-  if (rand < 0.20) {
-    // Walk forward then back
+  if (rand < 0.25) {
     bot.setControlState('forward', true);
     setTimeout(() => {
       if (!bot || bot.ended) return;
@@ -88,45 +69,20 @@ function doAntiAfk() {
         setTimeout(() => bot && bot.setControlState('back', false), 400);
       }, 500);
     }, 500);
-
-  } else if (rand < 0.40) {
-    // Jump
+  } else if (rand < 0.50) {
     bot.setControlState('jump', true);
     setTimeout(() => bot && bot.setControlState('jump', false), 300);
-
-  } else if (rand < 0.55) {
-    // Full 360 spin with slight pitch variation
+  } else if (rand < 0.75) {
     let angle = 0;
     const spin = setInterval(() => {
       if (!bot || bot.ended) { clearInterval(spin); return; }
-      angle += 0.25;
-      bot.look(angle, (Math.random() - 0.5) * 0.15, false);
+      angle += 0.3;
+      bot.look(angle, (Math.random() - 0.5) * 0.2, false);
       if (angle >= Math.PI * 2) clearInterval(spin);
-    }, 60);
-
-  } else if (rand < 0.65) {
-    // Sneak + stand
+    }, 80);
+  } else {
     bot.setControlState('sneak', true);
     setTimeout(() => bot && bot.setControlState('sneak', false), 700);
-
-  } else if (rand < 0.80) {
-    // Swing arm (shows activity in server logs)
-    try { bot.swingArm(); } catch (e) {}
-
-  } else if (rand < 0.90) {
-    // Open and close inventory
-    try {
-      bot.openInventory();
-      setTimeout(() => {
-        try { if (bot && bot.currentWindow) bot.closeWindow(bot.currentWindow); } catch (e) {}
-      }, 1200);
-    } catch (e) {}
-
-  } else {
-    // Random look direction
-    const yaw   = (Math.random() * Math.PI * 2) - Math.PI;
-    const pitch = (Math.random() - 0.5) * 0.6;
-    try { bot.look(yaw, pitch, true); } catch (e) {}
   }
 }
 
@@ -143,27 +99,24 @@ function createBot() {
       host: HOST,
       port: PORT_MC,
       username: USERNAME,
-      version: '1.21.11',             // DO NOT CHANGE
-      checkTimeoutInterval: 600000,   // 10 min — we handle keepalive ourselves
+      version: '1.21.11',
+      // Let mineflayer handle keepalive 100% natively — do NOT override it
+      checkTimeoutInterval: 30000,
       hideErrors: false,
     });
   } catch (e) {
-    console.log(`[${new Date().toISOString()}] ❌ Failed to create bot: ${e.message}`);
+    console.log(`[${new Date().toISOString()}] ❌ Failed: ${e.message}`);
     connecting = false;
     scheduleReconnect(3000);
     return;
   }
 
-  // Attach keepalive handler as early as possible (before spawn)
-  attachPacketKeepalive();
-
-  // Bail out if no spawn within 40s (Aternos can be slow)
+  // Bail if no spawn in 40s
   const spawnTimeout = setTimeout(() => {
     console.log(`[${new Date().toISOString()}] ⚠️ No spawn in 40s — reconnecting...`);
     try { bot.end(); } catch (e) {}
   }, 40000);
 
-  // ── Spawn ─────────────────────────────────────────────────────────────
   bot.on('spawn', () => {
     clearTimeout(spawnTimeout);
     connecting = false;
@@ -171,11 +124,7 @@ function createBot() {
     waitingForAlready = false;
     console.log(`[${new Date().toISOString()}] ✅ Spawned!`);
 
-    // Re-attach keepalive now that client is fully live
-    packetKeepaliveAttached = false;
-    attachPacketKeepalive();
-
-    // ── /login (once only) ──────────────────────────────────────────────
+    // Send /login once
     if (!loginSent) {
       setTimeout(() => {
         if (bot && !bot.ended && !loginSent) {
@@ -187,46 +136,28 @@ function createBot() {
       }, 1500);
     }
 
-    // ── Position packets every 500ms ───────────────────────────────────
-    // Keeps the server satisfied that the client is alive and moving
-    if (positionInterval) clearInterval(positionInterval);
-    positionInterval = setInterval(() => {
-      if (!bot || bot.ended || !bot.entity) return;
-      try {
-        bot._client.write('position', {
-          x: bot.entity.position.x,
-          y: bot.entity.position.y,
-          z: bot.entity.position.z,
-          flags: 0,
-          teleportId: 0,
-        });
-      } catch (e) {}
-    }, 500);
-
-    // ── Arm swing every 4s ─────────────────────────────────────────────
-    if (keepaliveInterval) clearInterval(keepaliveInterval);
-    keepaliveInterval = setInterval(() => {
+    // Arm swing every 4s to show activity
+    if (armSwingInterval) clearInterval(armSwingInterval);
+    armSwingInterval = setInterval(() => {
       if (!bot || bot.ended || !bot.entity || !loggedIn) return;
       try { bot.swingArm(); } catch (e) {}
     }, 4000);
 
-    // ── Anti-AFK every 8s ──────────────────────────────────────────────
+    // Anti-AFK every 10s
     if (antiAfkInterval) clearInterval(antiAfkInterval);
-    antiAfkInterval = setInterval(doAntiAfk, 8000);
+    antiAfkInterval = setInterval(doAntiAfk, 10000);
   });
 
-  // ── Re-login only if the server actually asks ──────────────────────────
+  // Re-login only if server explicitly asks
   bot.on('chat', (username, message) => {
     if (username === bot.username) return;
     const msg = message.toLowerCase();
-    const needsLogin =
+    if (
       msg.includes('please login') ||
       msg.includes('please log in') ||
-      msg.includes('/login') ||
       msg.includes('you have been logged out') ||
-      (msg.includes('login') && msg.includes('password'));
-
-    if (needsLogin && loggedIn) {
+      (msg.includes('login') && msg.includes('password'))
+    ) {
       loggedIn = false;
       loginSent = false;
       setTimeout(() => {
@@ -234,19 +165,17 @@ function createBot() {
           bot.chat(`/login ${PASSWORD}`);
           loginSent = true;
           loggedIn = true;
-          console.log(`[${new Date().toISOString()}] 🔑 Re-logged in (server requested)`);
+          console.log(`[${new Date().toISOString()}] 🔑 Re-logged in`);
         }
       }, 800);
     }
   });
 
-  // ── Death → respawn instantly ──────────────────────────────────────────
   bot.on('death', () => {
-    console.log(`[${new Date().toISOString()}] 💀 Died — respawning...`);
+    console.log(`[${new Date().toISOString()}] 💀 Respawning...`);
     setTimeout(() => { try { bot && bot.respawn(); } catch (e) {} }, 300);
   });
 
-  // ── Kicked ─────────────────────────────────────────────────────────────
   bot.on('kicked', (reason) => {
     clearTimeout(spawnTimeout);
     const raw = typeof reason === 'string' ? reason : JSON.stringify(reason) || '';
@@ -254,25 +183,16 @@ function createBot() {
     console.log(`[${new Date().toISOString()}] 👢 Kicked: ${raw}`);
 
     if (r.includes('already')) {
-      // Username still live on server — back off exponentially so we don't
-      // spam-reconnect into an infinite kick loop
       alreadyOnlineRetries++;
       waitingForAlready = true;
       const delay = Math.min(15000 * Math.pow(2, alreadyOnlineRetries - 1), 5 * 60 * 1000);
-      console.log(`[${new Date().toISOString()}] ⚠️ Username already online — waiting ${delay / 1000}s (attempt ${alreadyOnlineRetries})`);
+      console.log(`[${new Date().toISOString()}] ⚠️ Already online — waiting ${delay / 1000}s`);
       scheduleReconnect(delay);
       return;
     }
 
-    // Throttle / rate-limit kick
     if (r.includes('throttl') || r.includes('too many') || r.includes('slow down')) {
       scheduleReconnect(10000);
-      return;
-    }
-
-    // Server restarting / not ready
-    if (r.includes('restart') || r.includes('starting') || r.includes('maintenance')) {
-      scheduleReconnect(20000);
       return;
     }
 
@@ -281,15 +201,13 @@ function createBot() {
     scheduleReconnect(3000);
   });
 
-  // ── End ────────────────────────────────────────────────────────────────
   bot.on('end', (reason) => {
     clearTimeout(spawnTimeout);
     console.log(`[${new Date().toISOString()}] 🔴 End: ${reason}`);
-    if (waitingForAlready) return; // backoff timer already set
+    if (waitingForAlready) return;
     scheduleReconnect(3000);
   });
 
-  // ── Error ──────────────────────────────────────────────────────────────
   bot.on('error', (err) => {
     clearTimeout(spawnTimeout);
     console.log(`[${new Date().toISOString()}] ❌ Error: ${err.message}`);
@@ -300,7 +218,6 @@ function createBot() {
 
 createBot();
 
-// ── Heartbeat log every minute ────────────────────────────────────────────
 setInterval(() => {
   console.log(`[${new Date().toISOString()}] 💓 Connected:${bot ? !bot.ended : false} LoggedIn:${loggedIn}`);
 }, 60000);
