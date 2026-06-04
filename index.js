@@ -113,13 +113,13 @@ function createBot() {
       port: PORT_MC,
       username: USERNAME,
       version: '1.21.11',
-      checkTimeoutInterval: 10000, // give server 60s to respond to keepalive
+      checkTimeoutInterval: 5000, // give server 60s to respond to keepalive
       hideErrors: false,
     });
   } catch (e) {
     console.log(`[${new Date().toISOString()}] ❌ Failed: ${e.message}`);
     connecting = false;
-    scheduleReconnect(500);
+    scheduleReconnect(8000);
     return;
   }
 
@@ -223,7 +223,7 @@ function createBot() {
 
     alreadyOnlineRetries = 0;
     waitingForAlready    = false;
-    scheduleReconnect(500);
+    scheduleReconnect(8000);
   });
 
   // ── End ────────────────────────────────────────────────────────────────
@@ -232,7 +232,7 @@ function createBot() {
     clearAllIntervals();
     console.log(`[${new Date().toISOString()}] 🔴 End: ${reason}`);
     if (waitingForAlready) return;
-    scheduleReconnect(500);
+    scheduleReconnect(8000);
   });
 
   // ── Error ──────────────────────────────────────────────────────────────
@@ -241,7 +241,7 @@ function createBot() {
     clearAllIntervals(); // cancel login timer before it fires on dead bot
     console.log(`[${new Date().toISOString()}] ❌ Error: ${err.message}`);
     if (waitingForAlready) return;
-    scheduleReconnect(500);
+    scheduleReconnect(8000);
   });
 }
 
