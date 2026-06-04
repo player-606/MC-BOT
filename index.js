@@ -113,7 +113,7 @@ function createBot() {
       port: PORT_MC,
       username: USERNAME,
       version: '1.21.11',
-      checkTimeoutInterval: 60000, // give server 60s to respond to keepalive
+      checkTimeoutInterval: 10000, // give server 60s to respond to keepalive
       hideErrors: false,
     });
   } catch (e) {
