@@ -31,6 +31,7 @@ let bot = null;
 let reconnectTimer = null;
 let antiAfkInterval = null;
 let armSwingInterval = null;
+let loginTimer = null;       // track login timeout so we can cancel it
 let loggedIn = false;
 let loginSent = false;
 let connecting = false;
@@ -41,6 +42,7 @@ let waitingForAlready = false;
 function clearAllIntervals() {
   if (antiAfkInterval)  { clearInterval(antiAfkInterval);  antiAfkInterval  = null; }
   if (armSwingInterval) { clearInterval(armSwingInterval); armSwingInterval = null; }
+  if (loginTimer)       { clearTimeout(loginTimer);        loginTimer       = null; }
 }
 
 // ── Reconnect ─────────────────────────────────────────────────────────────
@@ -86,6 +88,17 @@ function doAntiAfk() {
   }
 }
 
+// ── Safe chat — never throws ───────────────────────────────────────────────
+function safeChat(msg) {
+  try {
+    if (bot && !bot.ended && bot._client && typeof bot._client.chat === 'function') {
+      bot.chat(msg);
+    }
+  } catch (e) {
+    console.log(`[${new Date().toISOString()}] ⚠️ safeChat failed: ${e.message}`);
+  }
+}
+
 // ── Bot ───────────────────────────────────────────────────────────────────
 function createBot() {
   if (connecting) return;
@@ -100,7 +113,7 @@ function createBot() {
       port: PORT_MC,
       username: USERNAME,
       version: '1.21.11',
-      checkTimeoutInterval: 30000,
+      checkTimeoutInterval: 60000, // give server 60s to respond to keepalive
       hideErrors: false,
     });
   } catch (e) {
@@ -110,7 +123,7 @@ function createBot() {
     return;
   }
 
-  // Bail if no spawn in 40s (Aternos can be slow to load)
+  // Bail if no spawn in 40s
   const spawnTimeout = setTimeout(() => {
     console.log(`[${new Date().toISOString()}] ⚠️ No spawn in 40s — reconnecting...`);
     try { bot.end(); } catch (e) {}
@@ -124,11 +137,12 @@ function createBot() {
     waitingForAlready = false;
     console.log(`[${new Date().toISOString()}] ✅ Spawned!`);
 
-    // Send /login once, 1.5s after spawn
+    // Send /login once after 1.5s — store timer so we can cancel on disconnect
     if (!loginSent) {
-      setTimeout(() => {
+      loginTimer = setTimeout(() => {
+        loginTimer = null;
         if (bot && !bot.ended && !loginSent) {
-          bot.chat(`/login ${PASSWORD}`);
+          safeChat(`/login ${PASSWORD}`);
           loginSent = true;
           loggedIn  = true;
           console.log(`[${new Date().toISOString()}] 🔑 Login sent`);
@@ -150,7 +164,7 @@ function createBot() {
 
   // ── Death → respawn in 500ms ───────────────────────────────────────────
   bot.on('death', () => {
-    console.log(`[${new Date().toISOString()}] 💀 Died — respawning in 500ms`);
+    console.log(`[${new Date().toISOString()}] 💀 Died — respawning...`);
     setTimeout(() => {
       try { if (bot && !bot.ended) bot.respawn(); } catch (e) {}
     }, 500);
@@ -168,9 +182,10 @@ function createBot() {
     ) {
       loggedIn  = false;
       loginSent = false;
-      setTimeout(() => {
+      loginTimer = setTimeout(() => {
+        loginTimer = null;
         if (bot && !bot.ended && !loginSent) {
-          bot.chat(`/login ${PASSWORD}`);
+          safeChat(`/login ${PASSWORD}`);
           loginSent = true;
           loggedIn  = true;
           console.log(`[${new Date().toISOString()}] 🔑 Re-logged in`);
@@ -182,11 +197,11 @@ function createBot() {
   // ── Kicked ─────────────────────────────────────────────────────────────
   bot.on('kicked', (reason) => {
     clearTimeout(spawnTimeout);
+    clearAllIntervals();
     const raw = typeof reason === 'string' ? reason : JSON.stringify(reason) || '';
     const r   = raw.toLowerCase();
     console.log(`[${new Date().toISOString()}] 👢 Kicked: ${raw}`);
 
-    // Username still alive on server — back off so we don't loop-kick
     if (r.includes('already')) {
       alreadyOnlineRetries++;
       waitingForAlready = true;
@@ -196,13 +211,11 @@ function createBot() {
       return;
     }
 
-    // Throttled — wait longer
     if (r.includes('throttl') || r.includes('too many') || r.includes('slow down')) {
       scheduleReconnect(10000);
       return;
     }
 
-    // Server restarting
     if (r.includes('restart') || r.includes('starting') || r.includes('maintenance')) {
       scheduleReconnect(15000);
       return;
@@ -210,29 +223,30 @@ function createBot() {
 
     alreadyOnlineRetries = 0;
     waitingForAlready    = false;
-    scheduleReconnect(500); // reconnect in 0.5s
+    scheduleReconnect(500);
   });
 
   // ── End ────────────────────────────────────────────────────────────────
   bot.on('end', (reason) => {
     clearTimeout(spawnTimeout);
+    clearAllIntervals();
     console.log(`[${new Date().toISOString()}] 🔴 End: ${reason}`);
     if (waitingForAlready) return;
-    scheduleReconnect(500); // reconnect in 0.5s
+    scheduleReconnect(500);
   });
 
   // ── Error ──────────────────────────────────────────────────────────────
   bot.on('error', (err) => {
     clearTimeout(spawnTimeout);
+    clearAllIntervals(); // cancel login timer before it fires on dead bot
     console.log(`[${new Date().toISOString()}] ❌ Error: ${err.message}`);
     if (waitingForAlready) return;
-    scheduleReconnect(500); // reconnect in 0.5s
+    scheduleReconnect(500);
   });
 }
 
 createBot();
 
-// Heartbeat log every minute
 setInterval(() => {
   console.log(`[${new Date().toISOString()}] 💓 Connected:${bot ? !bot.ended : false} LoggedIn:${loggedIn}`);
 }, 60000);
