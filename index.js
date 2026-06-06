@@ -3,7 +3,7 @@ const http = require('http');
 const https = require('https');
 
 const HOST = '606smp.aternos.me';
-const PORT_MC = 47593;
+const PORT_MC = 11387;
 const USERNAME = 'Bot';
 const PASSWORD = '@.Bot_2012.@';
 const HTTP_PORT = process.env.PORT || 3000;
